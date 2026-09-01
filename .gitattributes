@@ -1,0 +1,15 @@
+* text=auto
+
+# Linux-executed sources must remain LF even when edited with Windows tools.
+*.sh text eol=lf
+*.py text eol=lf
+*.tf text eol=lf
+*.tftpl text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.j2 text eol=lf
+Makefile text eol=lf
+
+# Keep project documentation and input examples consistently normalized.
+*.md text eol=lf
+*.csv text eol=lf

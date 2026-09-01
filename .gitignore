@@ -1,0 +1,44 @@
+# Real values and generated state
+.env
+build/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+.terraform/
+terraform.tfvars
+*.auto.tfvars
+*.auto.tfvars.json
+
+# Credentials: SSH keys, OpenStack RC files, Ansible vaults
+*.pem
+*.key
+id_ed25519*
+id_rsa*
+!*.pub.example
+*-openrc.sh
+clouds.yaml
+.vault_pass
+
+# Ansible generated inventory and retry files
+ansible/inventory/*.yml
+!ansible/inventory/.gitkeep
+*.retry
+
+# Evidence for the report: keep locally, attach to the document
+evidence/
+recordings/
+
+# Python / editors / OS
+__pycache__/
+*.pyc
+.venv/
+venv/
+.idea/
+.vscode/
+.DS_Store
+*:Zone.Identifier
+
+# Local assignment and faculty template; keep the repository source-only.
+IRUO_Projekt_2025_2026-2.pdf
+projekt_template_algebra_bernays_HR_2025.docx
