@@ -1,0 +1,54 @@
+// Copy to terraform.tfvars and fill in from `make openstack-discover`.
+// terraform.tfvars is gitignored.
+//
+//   cp terraform.tfvars.example terraform.tfvars
+//
+// Credentials are NOT here: the provider reads OS_AUTH_URL, OS_USERNAME,
+// OS_PASSWORD and the domain variables from the environment, exactly like the
+// openstack CLI. Source your RC file before running anything.
+
+// Values below match the discovered CL110 RHOSP 16.1 service layout. UUIDs and
+// the workstation source address still have to be copied from the active lab.
+
+identity_domain_name = "TechSprint"
+
+// openstack network list --external -f value -c ID -c Name
+external_network_id   = "<uuid-from-openstack-network-list-external>"
+external_network_name = "provider-datacentre"
+
+// Shared native-CephFS client network.
+storage_network_id = "<uuid-of-provider-storage>"
+
+// Academy cloud image. RHEL 8 is the lab-provided cloud-specialised image.
+image_name = "rhel8"
+
+// The bootstrap creates the private application flavor and grants each
+// developer project access. `default` is the existing 2-vCPU/2-GB jump flavor.
+developer_flavor_name = "techsprint.2c4r"
+jump_flavor_name      = "default"
+octavia_amphora_flavor_name = "octavia_65"
+
+// To be confirmed by the runtime smoke test.
+admin_username = "cloud-user"
+
+// The RH Academy workstation address is the only source allowed to SSH to the
+// project jump host.
+admin_source_ip = "<workstation-address>/32"
+
+// ---------------------------------------------------------------------------
+// Defaults that already satisfy the brief
+// ---------------------------------------------------------------------------
+
+// moodle_instance_count = 2
+// data_disk_size_gb     = 32
+// mgmt_cidr             = "10.100.0.0/24"
+// file_share_size_gb    = 5
+// manila_share_type     = "techsprint-cephfs"
+
+// Use the lab's internal resolver if it has one; without a resolver cloud-init
+// stalls for minutes trying to reach package mirrors.
+// dns_nameservers       = ["8.8.8.8", "1.1.1.1"]
+
+// Mandatory tag values from the brief.
+// project_name          = "techsprint"
+// environment           = "testing"

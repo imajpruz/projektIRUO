@@ -1,0 +1,57 @@
+#cloud-config
+write_files:
+  - path: /etc/ssh/sshd_config.d/60-techsprint.conf
+    permissions: "0644"
+    content: |
+      PasswordAuthentication no
+      PermitRootLogin no
+      ChallengeResponseAuthentication no
+
+  - path: /etc/techsprint-node
+    permissions: "0644"
+    content: |
+      NODE_INDEX=${node_index}
+      CLOUD=openstack
+
+  - path: /usr/local/sbin/techsprint-primary-route
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      primary_ip="${primary_ip}"
+      primary_gateway="${primary_gateway}"
+      primary_dev="$(ip -o -4 addr show | awk -v ip="$primary_ip" '$4 ~ ("^" ip "/") {print $2; exit}')"
+      test -n "$primary_dev"
+      while read -r dev; do
+        if [[ "$dev" != "$primary_dev" ]]; then
+          ip route del default dev "$dev" 2>/dev/null || true
+        fi
+      done < <(ip -o link show | awk -F': ' '{split($2, name, "@"); print name[1]}')
+      ip route replace default via "$primary_gateway" dev "$primary_dev"
+
+  - path: /etc/systemd/system/techsprint-primary-route.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Keep the default route on the private application NIC
+      Wants=network-online.target
+      After=network-online.target
+      StartLimitIntervalSec=0
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/techsprint-primary-route
+      RemainAfterExit=yes
+      Restart=on-failure
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - [ systemctl, enable, --now, techsprint-primary-route.service ]
+  - [ systemctl, restart, sshd ]
+  - [ bash, -c, "systemctl enable --now firewalld 2>/dev/null || true" ]
+  - [ bash, -c, "echo 'TECHSPRINT-NODE-${node_index}-READY'" ]
+
+final_message: "TechSprint OpenStack node ${node_index} ready after $UPTIME s"
