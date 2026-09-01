@@ -352,9 +352,18 @@ class RepositoryContractTests(unittest.TestCase):
         self.assertIn("python3-libsemanage", packages)
         requirements = Path("ansible/requirements.yml").read_text()
         self.assertEqual(requirements.count("version:"), 3)
-        install = Path(".cursor/install.sh").read_text()
-        self.assertIn('AZURE_CLI_VERSION="2.89.1"', install)
-        self.assertIn('"azure-cli=${AZURE_CLI_VERSION}-1~${VERSION_CODENAME}"', install)
+
+    def test_ci_installs_validation_tools_without_cursor_bootstrap(self) -> None:
+        workflow = Path(".github/workflows/validate.yml").read_text()
+        self.assertNotIn(".cursor/", workflow)
+        self.assertIn("hashicorp/setup-terraform@v3", workflow)
+        self.assertIn('ansible-core==2.21.3', workflow)
+        self.assertIn('ansible-lint==26.8.0', workflow)
+        self.assertIn(
+            "ansible-galaxy collection install -r ansible/requirements.yml",
+            workflow,
+        )
+        self.assertIn("shellcheck", workflow)
 
     def test_cloud_init_degraded_status_and_route_retries(self) -> None:
         site = Path("ansible/site.yml").read_text()
