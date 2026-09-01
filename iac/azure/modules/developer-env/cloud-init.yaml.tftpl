@@ -1,0 +1,35 @@
+#cloud-config
+# Minimal bootstrap for a Moodle application node.
+#
+# Deliberately thin: this gets the host to a state where Ansible can take over,
+# and nothing more. Moodle, PHP, MariaDB and the storage mounts are all done by
+# ansible/site.yml, because iterating on a broken Ansible task is a 20-second
+# re-run whereas iterating on broken cloud-init means rebuilding the VM.
+#
+# Package installation deliberately starts in Ansible, after deploy.sh has
+# confirmed that the jump/NVA finished configuring outbound connectivity.
+
+write_files:
+  # SSH hardening. The brief's whole access model rests on the bastion being
+  # the only way in, so password auth must be off on every node.
+  - path: /etc/ssh/sshd_config.d/60-techsprint.conf
+    permissions: "0644"
+    content: |
+      PasswordAuthentication no
+      PermitRootLogin no
+      ChallengeResponseAuthentication no
+
+  # Records which node this is, so the Moodle footer and the load-balancer
+  # demonstration can show requests landing on different backends.
+  - path: /etc/techsprint-node
+    permissions: "0644"
+    content: |
+      NODE_INDEX=${node_index}
+
+runcmd:
+  - [ systemctl, restart, sshd ]
+  # Loud marker so `az vm boot-diagnostics get-boot-log` answers "did the
+  # bootstrap finish?" at a glance.
+  - [ bash, -c, "echo 'TECHSPRINT-NODE-${node_index}-READY'" ]
+
+final_message: "TechSprint Moodle node ${node_index} ready after $UPTIME s"

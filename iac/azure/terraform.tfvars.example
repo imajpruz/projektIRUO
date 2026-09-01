@@ -1,0 +1,52 @@
+// Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored: it
+// holds your subscription id, tenant id and home IP address.
+//
+//   cp terraform.tfvars.example terraform.tfvars
+
+// az account show --query id -o tsv
+subscription_id = "<your-subscription-id>"
+
+// az account show --query tenantId -o tsv
+tenant_id = "<your-tenant-id>"
+
+// Only source allowed to SSH to the bastion and create storage data-plane objects.
+//   curl -s https://ifconfig.me
+admin_source_ip = "<your.ip.address>/32"
+
+// ---------------------------------------------------------------------------
+// Everything below has a working default that already satisfies the brief.
+// Override only if you need to.
+// ---------------------------------------------------------------------------
+
+// Azure for Students allows six vCPUs per region. The tested defaults place one
+// 4-vCPU developer environment in Denmark East, the second in Austria East,
+// and the 1-vCPU lead/jump VM in Denmark East.
+// hub_location = "denmarkeast"
+// lead_vm_size = "Standard_A1_v2"
+// developer_placements = [
+//   { location = "denmarkeast", vm_size = "Standard_B2s" },
+//   { location = "austriaeast", vm_size = "Standard_D2ls_v6" },
+// ]
+
+// The brief requires two, to simulate high availability.
+// moodle_instance_count = 2
+
+// Rocky Linux 9. Needs a one-time terms acceptance:
+//   az vm image terms accept --publisher resf --offer rockylinux-x86_64 --plan 9-base
+// Switching to a first-party image (Ubuntu, Azure Linux) also requires
+// os_image_requires_plan = false, because those reject a plan block.
+// os_image = {
+//   publisher = "resf"
+//   offer     = "rockylinux-x86_64"
+//   sku       = "9-base"
+//   version   = "latest"
+// }
+// os_image_requires_plan = true
+
+// data_disk_size_gb     = 32
+// hub_vnet_cidr         = "10.0.0.0/16"
+
+// Mandatory tag values from the brief. Changing these changes the tags, which
+// are worth 2 points, so leave them alone.
+// project_name          = "techsprint"
+// environment           = "testing"
