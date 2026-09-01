@@ -1,0 +1,25 @@
+<?php
+unset($CFG);
+global $CFG;
+$CFG = new stdClass();
+
+$CFG->dbtype = 'mariadb';
+$CFG->dblibrary = 'native';
+$CFG->dbhost = '{{ moodle_db_host }}';
+$CFG->dbname = '{{ moodle_db_name }}';
+$CFG->dbuser = '{{ moodle_db_user }}';
+$CFG->dbpass = '{{ moodle_db_password }}';
+$CFG->prefix = 'mdl_';
+$CFG->dboptions = [
+    'dbpersist' => 0,
+    'dbport' => '',
+    'dbsocket' => '',
+    'dbcollation' => 'utf8mb4_unicode_ci',
+];
+
+$CFG->wwwroot = '{{ moodle_wwwroot }}';
+$CFG->dataroot = '{{ moodle_data_dir }}';
+$CFG->admin = 'admin';
+$CFG->directorypermissions = 02770;
+
+require_once(__DIR__ . '/lib/setup.php');

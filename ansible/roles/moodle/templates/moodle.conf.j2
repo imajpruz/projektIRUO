@@ -1,0 +1,23 @@
+{# Apache virtual host for a Moodle node behind the load balancer. #}
+# Managed by Ansible. Edit ansible/roles/moodle/templates/moodle.conf.j2.
+
+<VirtualHost *:80>
+    ServerName {{ moodle_wwwroot | default('http://localhost') | regex_replace('^https?://', '') }}
+    DocumentRoot {{ moodle_web_root }}
+
+    <Directory {{ moodle_web_root }}>
+        Options -Indexes +FollowSymLinks
+        AllowOverride None
+        Require all granted
+    </Directory>
+
+    # moodledata must never be reachable over HTTP: it holds uploaded files,
+    # session data and the file cache. Moodle's own installer warns about this,
+    # and an exposed dataroot is a standard finding in a security review.
+    <Directory {{ moodle_data_dir }}>
+        Require all denied
+    </Directory>
+
+    # Makes the selected backend visible in the load-balancer demo.
+    Header always set X-TechSprint-Node "{{ inventory_hostname }}"
+</VirtualHost>

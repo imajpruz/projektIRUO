@@ -1,0 +1,50 @@
+---
+# Configuration half of the deployment. Terraform builds infrastructure;
+# Ansible turns it into working Moodle.
+#
+# Called by deploy.sh, never by hand during a graded run:
+#   ansible-playbook -i ansible/inventory/azure.yml ansible/site.yml
+#
+# Reaches every node through the bastion via ProxyCommand in the inventory, so
+# it works against hosts that have no public address - which is the whole point
+# of the jump-host requirement.
+
+- name: Prepare the data disk and mount both storage services
+  hosts: moodle
+  become: true
+  gather_facts: true
+
+  pre_tasks:
+    # Cloud images finish booting before cloud-init finishes running. Without
+    # this wait, the first package task races the one cloud-init is already
+    # doing and fails on a dnf lock.
+    - name: Wait for cloud-init to finish
+      ansible.builtin.command: cloud-init status --wait
+      register: cloud_init_wait
+      changed_when: false
+      failed_when: cloud_init_wait.rc not in [0, 2]
+      timeout: 300
+
+  roles:
+    - role: common
+      tags: [common]
+    - role: storage
+      tags: [storage]
+
+- name: Install and configure Moodle
+  hosts: moodle
+  become: true
+
+  roles:
+    - role: database
+      tags: [database]
+    - role: moodle
+      tags: [moodle]
+
+- name: Configure the bastion
+  hosts: jump
+  become: true
+
+  roles:
+    - role: bastion
+      tags: [bastion]

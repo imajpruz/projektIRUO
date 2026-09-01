@@ -1,0 +1,372 @@
+---
+# Moodle itself: PHP, Apache, the source tree, and an unattended install driven
+# by the CLI installer so the whole deployment stays hands-off.
+#
+# The requirement is "dizajnirati arhitekturu koja će omogućiti postavljanje ove
+# aplikacije" plus two instances for HA, which is what this role plus the load
+# balancer deliver.
+
+- name: Install Apache, PHP and the extensions Moodle requires
+  ansible.builtin.package:
+    name: "{{ moodle_packages }}"
+    state: present
+  register: pkg
+  retries: 3
+  delay: 15
+  until: pkg is succeeded
+
+- name: Verify required PHP extensions
+  ansible.builtin.command:
+    cmd: >-
+      php -r 'exit(extension_loaded("sodium") && extension_loaded("zip") ? 0 : 1);'
+  changed_when: false
+
+- name: Apply the PHP settings Moodle's installer checks for
+  ansible.builtin.copy:
+    dest: /etc/php.d/99-moodle.ini
+    mode: "0644"
+    content: |
+      ; Managed by Ansible. Moodle's environment check fails the install if
+      ; these are below its minimums, so they are set explicitly rather than
+      ; left to the distribution default.
+      max_input_vars = 5000
+      memory_limit = 256M
+      post_max_size = 128M
+      upload_max_filesize = 128M
+      max_execution_time = 300
+      ; Moodle warns loudly about this one on every admin page if it is on.
+      output_buffering = Off
+  notify:
+    - Restart apache
+    - Restart php-fpm
+
+- name: Create the Moodle web root
+  ansible.builtin.file:
+    path: "{{ moodle_web_root }}"
+    state: directory
+    owner: root
+    group: "{{ moodle_group }}"
+    mode: "0755"
+
+- name: Check whether Moodle is already unpacked
+  ansible.builtin.stat:
+    path: "{{ moodle_web_root }}/version.php"
+  register: moodle_present
+
+# Downloaded rather than cloned: the tarball is one request through the jump
+# host's outbound NVA path, while a git clone would fetch unnecessary history.
+- name: Download the Moodle release
+  ansible.builtin.get_url:
+    url: "{{ moodle_download_url }}"
+    dest: "/tmp/moodle-{{ moodle_version }}.tgz"
+    mode: "0644"
+    timeout: 120
+  when: not moodle_present.stat.exists
+  register: moodle_download
+  retries: 3
+  delay: 10
+  until: moodle_download is succeeded
+
+- name: Unpack Moodle
+  ansible.builtin.unarchive:
+    src: "/tmp/moodle-{{ moodle_version }}.tgz"
+    dest: "{{ moodle_web_root }}"
+    remote_src: true
+    extra_opts: [--strip-components=1]
+    owner: root
+    group: "{{ moodle_group }}"
+  when: not moodle_present.stat.exists
+
+- name: Allow Apache to reach the database and object storage under SELinux
+  ansible.posix.seboolean:
+    name: "{{ item }}"
+    state: true
+    persistent: true
+  loop:
+    - httpd_can_network_connect
+    - httpd_can_network_connect_db
+    - httpd_use_fusefs # the BlobFuse2 Moodle-data mount
+    - httpd_use_cifs   # the Azure Files backup mount
+  when: ansible_os_family == 'RedHat'
+
+- name: Deploy the Apache virtual host
+  ansible.builtin.template:
+    src: moodle.conf.j2
+    dest: "{{ apache_conf_dir }}/moodle.conf"
+    mode: "0644"
+  notify: Restart apache
+
+- name: Remove the distribution welcome page
+  ansible.builtin.file:
+    path: "{{ apache_conf_dir }}/welcome.conf"
+    state: absent
+  notify: Restart apache
+
+# The load balancer needs a small endpoint that is available during installation.
+- name: Deploy the load balancer health endpoint
+  ansible.builtin.template:
+    src: healthz.php.j2
+    dest: "{{ moodle_web_root }}/healthz.php"
+    owner: root
+    group: "{{ moodle_group }}"
+    mode: "0644"
+
+- name: Open HTTP in firewalld
+  ansible.posix.firewalld:
+    service: http
+    permanent: true
+    immediate: true
+    state: enabled
+  when: ansible_os_family == 'RedHat'
+
+- name: Start PHP-FPM
+  ansible.builtin.systemd:
+    name: php-fpm
+    state: started
+    enabled: true
+
+- name: Start Apache
+  ansible.builtin.systemd:
+    name: "{{ apache_service }}"
+    state: started
+    enabled: true
+
+# --- unattended install ------------------------------------------------------
+#
+# Only node 1 runs the installer: it writes the database schema, and two nodes
+# doing that concurrently corrupts it. Node 2 then receives the same config.php
+# and serves the same database, which is what makes the pair a cluster rather
+# than two unrelated sites.
+
+- name: Check whether Moodle config exists
+  ansible.builtin.stat:
+    path: "{{ moodle_web_root }}/config.php"
+  register: moodle_config
+
+- name: Check the successful-install marker
+  ansible.builtin.stat:
+    path: /var/lib/techsprint-moodle-installed
+  register: moodle_install_marker
+
+- name: Default Moodle database state
+  ansible.builtin.set_fact:
+    moodle_database_has_tables: false
+    moodle_database_complete: false
+
+- name: Count existing Moodle tables
+  ansible.builtin.command:
+    argv:
+      - mariadb
+      - --batch
+      - --skip-column-names
+      - "--execute=SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='{{ moodle_db_name }}';"
+  register: moodle_table_count
+  changed_when: false
+  when:
+    - is_db_primary
+    - not moodle_install_marker.stat.exists
+
+- name: Count required Moodle tables
+  ansible.builtin.command:
+    argv:
+      - mariadb
+      - --batch
+      - --skip-column-names
+      - >-
+        --execute=SELECT COUNT(*) FROM information_schema.tables
+        WHERE table_schema='{{ moodle_db_name }}'
+        AND table_name IN ('mdl_config','mdl_user','mdl_course');
+  register: moodle_required_table_count
+  changed_when: false
+  when:
+    - is_db_primary
+    - not moodle_install_marker.stat.exists
+
+- name: Check final Moodle records
+  ansible.builtin.command:
+    argv:
+      - mariadb
+      - --batch
+      - --skip-column-names
+      - >-
+        --execute=SELECT
+        (SELECT COUNT(*) FROM {{ moodle_db_name }}.mdl_config WHERE name='version'),
+        (SELECT COUNT(*) FROM {{ moodle_db_name }}.mdl_config
+        WHERE name='rolesactive' AND value='1'),
+        (SELECT COUNT(*) FROM {{ moodle_db_name }}.mdl_config WHERE name='registerauth'),
+        (SELECT COUNT(*) FROM {{ moodle_db_name }}.mdl_config
+        WHERE name='registrationpending' AND value='1'),
+        (SELECT COUNT(*) FROM {{ moodle_db_name }}.mdl_user
+        WHERE username='{{ moodle_admin_user }}' AND deleted=0),
+        (SELECT COUNT(*) FROM {{ moodle_db_name }}.mdl_course
+        WHERE format='site' AND shortname='techsprint-{{ env_slug }}'
+        AND fullname='TechSprint Moodle ({{ env_slug }})');
+  register: moodle_completion_rows
+  changed_when: false
+  when:
+    - is_db_primary
+    - not moodle_install_marker.stat.exists
+    - moodle_required_table_count.stdout | int == 3
+
+- name: Record Moodle database state
+  ansible.builtin.set_fact:
+    moodle_database_has_tables: "{{ (moodle_table_count.stdout | int) > 0 }}"
+    moodle_database_complete: >-
+      {{
+        (moodle_required_table_count.stdout | int) == 3
+        and (moodle_completion_rows.stdout | default(''))
+          is match('^1\\s+1\\s+1\\s+1\\s+1\\s+1$')
+      }}
+  when:
+    - is_db_primary
+    - not moodle_install_marker.stat.exists
+
+- name: Restore a missing config for a complete database
+  ansible.builtin.template:
+    src: config.php.j2
+    dest: "{{ moodle_web_root }}/config.php"
+    owner: root
+    group: "{{ moodle_group }}"
+    mode: "0640"
+  when:
+    - is_db_primary
+    - moodle_install_marker.stat.exists or moodle_database_complete
+    - not moodle_config.stat.exists
+  no_log: true
+
+- name: Restore a missing success marker for a complete database
+  ansible.builtin.copy:
+    dest: /var/lib/techsprint-moodle-installed
+    content: "installed\n"
+    owner: root
+    group: root
+    mode: "0644"
+  when:
+    - is_db_primary
+    - moodle_database_complete
+    - not moodle_install_marker.stat.exists
+
+- name: Remove config from a positively identified incomplete installation
+  ansible.builtin.file:
+    path: "{{ moodle_web_root }}/config.php"
+    state: absent
+  when:
+    - is_db_primary
+    - not moodle_install_marker.stat.exists
+    - not moodle_database_complete
+
+- name: Remove an incomplete Moodle database
+  ansible.mysql.mysql_db:
+    name: "{{ moodle_db_name }}"
+    state: absent
+    login_unix_socket: /var/lib/mysql/mysql.sock
+  when:
+    - is_db_primary
+    - not moodle_install_marker.stat.exists
+    - moodle_database_has_tables
+    - not moodle_database_complete
+
+- name: Recreate a clean Moodle database
+  ansible.mysql.mysql_db:
+    name: "{{ moodle_db_name }}"
+    encoding: utf8mb4
+    collation: utf8mb4_unicode_ci
+    state: present
+    login_unix_socket: /var/lib/mysql/mysql.sock
+  when:
+    - is_db_primary
+    - not moodle_install_marker.stat.exists
+    - not moodle_database_complete
+
+- name: Permit the web user to create config.php during installation
+  ansible.builtin.file:
+    path: "{{ moodle_web_root }}"
+    state: directory
+    owner: root
+    group: "{{ moodle_group }}"
+    mode: "0775"
+  when:
+    - is_db_primary
+    - not moodle_install_marker.stat.exists
+    - not moodle_database_complete
+
+- name: Run the Moodle CLI installer on the primary node
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/php
+      - "{{ moodle_web_root }}/admin/cli/install.php"
+      - --lang=en
+      - "--wwwroot={{ moodle_wwwroot }}"
+      - "--dataroot={{ moodle_data_dir }}"
+      - --dbtype=mariadb
+      - "--dbhost={{ moodle_db_host }}"
+      - "--dbname={{ moodle_db_name }}"
+      - "--dbuser={{ moodle_db_user }}"
+      - "--dbpass={{ moodle_db_password }}"
+      - "--fullname=TechSprint Moodle ({{ env_slug }})"
+      - "--shortname=techsprint-{{ env_slug }}"
+      - "--summary=Isolated test environment for {{ env_owner_name }}"
+      - "--adminuser={{ moodle_admin_user }}"
+      - "--adminpass={{ moodle_admin_password }}"
+      - "--adminemail={{ moodle_admin_email }}"
+      - --non-interactive
+      - --agree-license
+      - --skip-database=0
+  args:
+    chdir: "{{ moodle_web_root }}"
+  become: true
+  become_user: "{{ moodle_user }}"
+  when:
+    - is_db_primary
+    - not moodle_install_marker.stat.exists
+    - not moodle_database_complete
+  no_log: true
+
+- name: Record a successful Moodle installation
+  ansible.builtin.copy:
+    dest: /var/lib/techsprint-moodle-installed
+    content: "installed\n"
+    owner: root
+    group: root
+    mode: "0644"
+  when:
+    - is_db_primary
+    - not moodle_install_marker.stat.exists
+    - not moodle_database_complete
+
+- name: Restore read-only Moodle code-directory permissions
+  ansible.builtin.file:
+    path: "{{ moodle_web_root }}"
+    state: directory
+    owner: root
+    group: "{{ moodle_group }}"
+    mode: "0755"
+  when: is_db_primary
+
+- name: Protect the primary Moodle configuration
+  ansible.builtin.file:
+    path: "{{ moodle_web_root }}/config.php"
+    owner: root
+    group: "{{ moodle_group }}"
+    mode: "0640"
+  when: is_db_primary
+
+# Node 2 pulls the config the installer wrote on node 1. delegate_to reads the
+# file from the primary while the task still runs in the secondary's context,
+# so both nodes end up serving the same site rather than two separate ones.
+- name: Read config.php from the primary node
+  ansible.builtin.slurp:
+    src: "{{ moodle_web_root }}/config.php"
+  register: primary_config
+  delegate_to: "{{ primary_node }}"
+  when: not is_db_primary
+
+- name: Install config.php on the secondary node
+  ansible.builtin.copy:
+    content: "{{ primary_config.content | b64decode }}"
+    dest: "{{ moodle_web_root }}/config.php"
+    owner: root
+    group: "{{ moodle_group }}"
+    mode: "0640"
+  when: not is_db_primary
+  no_log: true

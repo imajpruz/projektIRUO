@@ -1,0 +1,463 @@
+---
+# Three storage requirements, all graded:
+#
+#   "Kreirana i mountana dva diska za svaku instancu"          -> the data disk
+#   "instancu servisa za objektnu pohranu"                     -> blob / Swift
+#   "instancu servisa za datotečnu pohranu"                    -> Files / Manila
+#   "Obje pohrane moraju biti automatski montirane"            -> fstab entries
+#   "uz least-privilege princip"                               -> identity, not keys
+#
+# Everything here is idempotent, so a re-run after a failed deployment does not
+# reformat a disk that already holds data.
+
+# ----------------------------------------------------------------------------
+# Disk 2 of 2: the data disk
+# ----------------------------------------------------------------------------
+- name: Wait for the Azure data disk at LUN 10
+  ansible.builtin.wait_for:
+    path: /dev/disk/azure/scsi1/lun10
+    timeout: 180
+  when: techsprint_cloud == 'azure'
+
+- name: Select the Azure data disk
+  ansible.builtin.set_fact:
+    data_disk: /dev/disk/azure/scsi1/lun10
+  when: techsprint_cloud == 'azure'
+
+- name: Find the OpenStack data disk
+  ansible.builtin.set_fact:
+    data_disk_candidates: >-
+      {{
+        ansible_devices
+        | dict2items
+        | rejectattr('key', 'search', '^(loop|sr|dm-|fd)')
+        | selectattr('value.partitions', 'eq', {})
+        | map(attribute='key')
+        | reject('eq', root_disk_name)
+        | list
+      }}
+  vars:
+    root_disk_name: >-
+      {{ ansible_mounts | selectattr('mount', 'eq', '/') | map(attribute='device') | first
+         | regex_replace('^/dev/', '') | regex_replace('p?[0-9]+$', '') }}
+  when: techsprint_cloud == 'openstack'
+
+- name: Require exactly one OpenStack data disk
+  ansible.builtin.fail:
+    msg: >-
+      Expected one non-root data disk on {{ inventory_hostname }}, found
+      {{ data_disk_candidates | length }}. Devices seen:
+      {{ ansible_devices.keys() | list }}.
+  when:
+    - techsprint_cloud == 'openstack'
+    - data_disk_candidates | length != 1
+
+- name: Select the OpenStack data disk
+  ansible.builtin.set_fact:
+    data_disk: "/dev/{{ data_disk_candidates | first }}"
+  when: techsprint_cloud == 'openstack'
+
+- name: Create a filesystem on the data disk
+  community.general.filesystem:
+    fstype: xfs
+    dev: "{{ data_disk }}"
+    # Never force: if the disk already has a filesystem, this is a re-run and
+    # reformatting would destroy the developer's Moodle data.
+    force: false
+
+- name: Create the data-disk mount directory
+  ansible.builtin.file:
+    path: "{{ techsprint_data_disk_dir }}"
+    state: directory
+    mode: "0750"
+
+# Read the UUID directly rather than from facts: facts were gathered before the
+# filesystem existed, so ansible_devices has no UUID for it yet.
+- name: Read the data disk UUID
+  ansible.builtin.command: "blkid -o value -s UUID {{ data_disk }}"
+  register: data_disk_uuid
+  changed_when: false
+
+- name: Mount the data disk by UUID
+  ansible.posix.mount:
+    path: "{{ techsprint_data_disk_dir }}"
+    src: "UUID={{ data_disk_uuid.stdout }}"
+    fstype: xfs
+    # By UUID because device order is not stable across reboots or an extra
+    # attachment. nofail so a missing volume degrades to a missing mount rather
+    # than dropping the instance into emergency mode, where a cloud VM has no
+    # console to recover from.
+    opts: defaults,nofail
+    state: mounted
+
+- name: Grant Moodle access to the data disk
+  ansible.builtin.file:
+    path: "{{ techsprint_data_disk_dir }}"
+    state: directory
+    owner: root
+    group: "{{ moodle_group }}"
+    mode: "0770"
+
+# ----------------------------------------------------------------------------
+# File storage: Azure Files over SMB, or Manila/NFS on OpenStack
+#
+# Mounted at boot via fstab, which is what "automatski montirane" requires.
+# ----------------------------------------------------------------------------
+- name: Install the filesystem client packages
+  ansible.builtin.package:
+    name: >-
+      {{
+        ['cifs-utils', 'fuse3', 'dnf-plugins-core']
+        if techsprint_cloud == 'azure'
+        else ['ceph-common', 'fuse3', 'unzip']
+      }}
+    state: present
+
+- name: Create the backup mount point
+  ansible.builtin.file:
+    path: "{{ moodle_backup_dir }}"
+    state: directory
+    mode: "0770"
+
+# The current SMB implementation uses a storage account key in a root-only file
+# rather than exposing it in fstab. Managed-identity SMB is a future hardening
+# option once its Linux Kerberos helper has been validated on the chosen image.
+- name: Write the SMB credentials file
+  ansible.builtin.copy:
+    dest: /etc/smbcredentials-techsprint
+    mode: "0600"
+    owner: root
+    group: root
+    content: |
+      username={{ azure_file_storage_account }}
+      password={{ azure_file_storage_key }}
+  when: techsprint_cloud == 'azure'
+  no_log: true
+
+- name: Mount the Azure Files backup share
+  ansible.posix.mount:
+    path: "{{ moodle_backup_dir }}"
+    src: "//{{ azure_file_storage_account }}.file.core.windows.net/{{ azure_file_share }}"
+    fstype: cifs
+    opts: >-
+      {{
+        [
+          'credentials=/etc/smbcredentials-techsprint',
+          'uid=' ~ moodle_user,
+          'gid=' ~ moodle_group,
+          'dir_mode=0770',
+          'file_mode=0660',
+          'serverino',
+          'nosharesock',
+          'actimeo=30',
+          'mfsymlinks',
+          'nofail'
+        ] | join(',')
+      }}
+    state: mounted
+  when: techsprint_cloud == 'azure'
+
+- name: Ensure the Ceph configuration directory exists
+  ansible.builtin.file:
+    path: /etc/ceph
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: techsprint_cloud == 'openstack'
+
+- name: Require a Manila export location
+  ansible.builtin.assert:
+    that: openstack_file_share_export | length > 0
+    fail_msg: Manila returned no CephFS export location.
+  when: techsprint_cloud == 'openstack'
+
+- name: Write the Manila CephX secret
+  ansible.builtin.copy:
+    dest: /etc/ceph/techsprint-manila.secret
+    mode: "0600"
+    owner: root
+    group: root
+    content: "{{ openstack_file_share_key }}"
+  when: techsprint_cloud == 'openstack'
+  no_log: true
+
+- name: Mount the native CephFS Manila backup share
+  ansible.posix.mount:
+    path: "{{ moodle_backup_dir }}"
+    src: "{{ openstack_file_share_export }}"
+    fstype: ceph
+    opts: >-
+      name={{ openstack_file_share_user }},secretfile=/etc/ceph/techsprint-manila.secret,_netdev,nofail
+    state: mounted
+  when: techsprint_cloud == 'openstack'
+
+- name: Set file-share ownership for Moodle
+  ansible.builtin.file:
+    path: "{{ moodle_backup_dir }}"
+    state: directory
+    owner: "{{ moodle_user }}"
+    group: "{{ moodle_group }}"
+    mode: "0770"
+  when: techsprint_cloud == 'openstack'
+
+# ----------------------------------------------------------------------------
+# Azure object storage: BlobFuse2 mounted with the VM's managed identity
+# ----------------------------------------------------------------------------
+- name: Install the Microsoft package repository for BlobFuse2
+  ansible.builtin.get_url:
+    url: https://packages.microsoft.com/config/rhel/9/prod.repo
+    dest: /etc/yum.repos.d/microsoft-prod.repo
+    mode: "0644"
+    owner: root
+    group: root
+  when: techsprint_cloud == 'azure'
+
+- name: Install BlobFuse2
+  ansible.builtin.package:
+    name: blobfuse2
+    state: present
+  when: techsprint_cloud == 'azure'
+  register: blobfuse_package
+  retries: 3
+  delay: 15
+  until: blobfuse_package is succeeded
+
+- name: Permit FUSE mounts to be used by Apache
+  ansible.builtin.lineinfile:
+    path: /etc/fuse.conf
+    regexp: '^#?user_allow_other$'
+    line: user_allow_other
+    create: true
+    mode: "0644"
+
+- name: Create the object-storage mount directory
+  ansible.builtin.file:
+    path: "{{ moodle_data_dir }}"
+    state: directory
+    owner: "{{ moodle_user }}"
+    group: "{{ moodle_group }}"
+    mode: "0770"
+
+- name: Read the Moodle user ID
+  ansible.builtin.command: "id -u {{ moodle_user }}"
+  register: moodle_uid
+  changed_when: false
+
+- name: Read the Moodle group ID
+  ansible.builtin.command: "id -g {{ moodle_user }}"
+  register: moodle_gid
+  changed_when: false
+
+- name: Configure BlobFuse2 managed-identity authentication
+  ansible.builtin.copy:
+    dest: /etc/blobfuse2-techsprint.yaml
+    mode: "0600"
+    owner: root
+    group: root
+    content: |
+      foreground: true
+      logging:
+        type: syslog
+        level: log_warning
+      components:
+        - libfuse
+        - azstorage
+      libfuse:
+        allow-other: true
+        uid: {{ moodle_uid.stdout }}
+        gid: {{ moodle_gid.stdout }}
+        file-mode: 0660
+        dir-mode: 0770
+        direct-io: true
+        disable-writeback-cache: true
+        attribute-expiration-sec: 0
+        entry-expiration-sec: 0
+        negative-entry-expiration-sec: 0
+      azstorage:
+        type: block
+        account-name: {{ azure_blob_storage_account }}
+        container: {{ azure_blob_container }}
+        endpoint: https://{{ azure_blob_storage_account }}.blob.core.windows.net
+        mode: msi
+        appid: {{ azure_identity_client_id }}
+  when: techsprint_cloud == 'azure'
+
+- name: Install the automatic BlobFuse2 mount service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/techsprint-blobfuse.service
+    mode: "0644"
+    owner: root
+    group: root
+    content: |
+      [Unit]
+      Description=TechSprint Moodle object-storage mount
+      Wants=network-online.target
+      After=network-online.target
+      Before=httpd.service
+
+      [Service]
+      Type=simple
+      ExecStart=/usr/bin/blobfuse2 mount {{ moodle_data_dir }} --config-file=/etc/blobfuse2-techsprint.yaml
+      ExecStop=/usr/bin/fusermount3 -u {{ moodle_data_dir }}
+      Restart=on-failure
+      RestartSec=10
+
+      [Install]
+      WantedBy=multi-user.target
+  when: techsprint_cloud == 'azure'
+
+- name: Mount Azure Blob storage
+  ansible.builtin.systemd:
+    name: techsprint-blobfuse.service
+    enabled: true
+    state: started
+    daemon_reload: true
+  when: techsprint_cloud == 'azure'
+  register: blobfuse_service
+  retries: 60
+  delay: 10
+  until: blobfuse_service is succeeded
+
+- name: Wait for the Blob mount
+  ansible.builtin.command: "findmnt --mountpoint {{ moodle_data_dir }}"
+  changed_when: false
+  register: blob_mount
+  retries: 60
+  delay: 10
+  until: blob_mount is succeeded
+  when: techsprint_cloud == 'azure'
+
+# ----------------------------------------------------------------------------
+# OpenStack object storage: Swift mounted with the developer project identity
+# ----------------------------------------------------------------------------
+- name: Install rclone for the Swift FUSE mount
+  when: techsprint_cloud == 'openstack'
+  block:
+    - name: Install rclone from the configured package repositories
+      ansible.builtin.package:
+        name: rclone
+        state: present
+  rescue:
+    - name: Download the official rclone archive
+      ansible.builtin.get_url:
+        url: https://downloads.rclone.org/rclone-current-linux-amd64.zip
+        dest: /tmp/rclone-current-linux-amd64.zip
+        mode: "0644"
+        timeout: 120
+
+    - name: Unpack the official rclone archive
+      ansible.builtin.unarchive:
+        src: /tmp/rclone-current-linux-amd64.zip
+        dest: /tmp
+        remote_src: true
+
+    - name: Locate the extracted rclone binary
+      ansible.builtin.find:
+        paths: /tmp
+        patterns: rclone
+        recurse: true
+        file_type: file
+      register: extracted_rclone
+
+    - name: Fail if the rclone archive contained no binary
+      ansible.builtin.fail:
+        msg: The official rclone archive contained no rclone binary.
+      when: extracted_rclone.matched | int == 0
+
+    - name: Install the extracted rclone binary
+      ansible.builtin.copy:
+        src: "{{ (extracted_rclone.files | first).path }}"
+        dest: /usr/local/bin/rclone
+        owner: root
+        group: root
+        mode: "0755"
+        remote_src: true
+
+- name: Discover the installed rclone path
+  ansible.builtin.command: which rclone
+  register: rclone_command
+  changed_when: false
+  when: techsprint_cloud == 'openstack'
+
+- name: Create the rclone cache directory on the required data disk
+  ansible.builtin.file:
+    path: "{{ techsprint_data_disk_dir }}/rclone-cache"
+    state: directory
+    owner: "{{ moodle_user }}"
+    group: "{{ moodle_group }}"
+    mode: "0700"
+  when: techsprint_cloud == 'openstack'
+
+- name: Configure project-scoped Swift authentication for rclone
+  ansible.builtin.copy:
+    dest: /etc/rclone-techsprint.conf
+    mode: "0600"
+    owner: "{{ moodle_user }}"
+    group: "{{ moodle_group }}"
+    content: |
+      [techsprint]
+      type = swift
+      env_auth = false
+      auth = {{ openstack_object_auth_url }}
+      user = {{ openstack_object_username }}
+      key = {{ openstack_object_password }}
+      tenant = {{ openstack_object_project_name }}
+      domain = {{ openstack_object_domain_name }}
+      tenant_domain = {{ openstack_object_domain_name }}
+      auth_version = 3
+  when: techsprint_cloud == 'openstack'
+  no_log: true
+
+- name: Install the automatic Swift mount service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/techsprint-swift.service
+    mode: "0644"
+    owner: root
+    group: root
+    content: |
+      [Unit]
+      Description=TechSprint Moodle Swift object-storage mount
+      Wants=network-online.target
+      After=network-online.target
+      Before=httpd.service
+
+      [Service]
+      Type=simple
+      User={{ moodle_user }}
+      Group={{ moodle_group }}
+      ExecStart={{ rclone_command.stdout }} mount techsprint:{{ openstack_object_container }} {{ moodle_data_dir }} \
+        --config /etc/rclone-techsprint.conf \
+        --vfs-cache-mode full \
+        --cache-dir {{ techsprint_data_disk_dir }}/rclone-cache \
+        --dir-cache-time 30s \
+        --dir-perms 0770 \
+        --file-perms 0660
+      ExecStop=/usr/bin/fusermount3 -u {{ moodle_data_dir }}
+      Restart=on-failure
+      RestartSec=10
+
+      [Install]
+      WantedBy=multi-user.target
+  when: techsprint_cloud == 'openstack'
+
+- name: Mount OpenStack Swift object storage
+  ansible.builtin.systemd:
+    name: techsprint-swift.service
+    enabled: true
+    state: started
+    daemon_reload: true
+  register: swift_mount_service
+  retries: 18
+  delay: 10
+  until: swift_mount_service is succeeded
+  when: techsprint_cloud == 'openstack'
+
+- name: Wait for the Swift mount
+  ansible.builtin.command: "findmnt --mountpoint {{ moodle_data_dir }}"
+  changed_when: false
+  register: swift_mount
+  retries: 30
+  delay: 10
+  until: swift_mount is succeeded
+  when: techsprint_cloud == 'openstack'

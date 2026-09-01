@@ -1,0 +1,10 @@
+---
+- name: Restart apache
+  ansible.builtin.systemd:
+    name: "{{ apache_service }}"
+    state: restarted
+
+- name: Restart php-fpm
+  ansible.builtin.systemd:
+    name: php-fpm
+    state: restarted

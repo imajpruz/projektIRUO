@@ -1,0 +1,28 @@
+---
+# Where the required data disk and the two storage services land.
+techsprint_data_disk_dir: /mnt/techsprint-data
+moodle_data_dir: /var/moodledata       # Blob/Swift object-storage mount
+moodle_backup_dir: /srv/moodle-backups # file storage service (Files / Manila)
+moodle_user: apache
+moodle_group: apache
+
+# Supplied per host by the generated inventory. Empty defaults so the role can
+# be linted and dry-run without a live deployment.
+techsprint_cloud: unknown
+
+azure_blob_storage_account: ""
+azure_file_storage_account: ""
+azure_file_storage_key: ""
+azure_blob_container: ""
+azure_file_share: ""
+azure_identity_client_id: ""
+
+openstack_object_container: ""
+openstack_object_auth_url: ""
+openstack_object_username: ""
+openstack_object_password: ""
+openstack_object_project_name: ""
+openstack_object_domain_name: ""
+openstack_file_share_export: ""
+openstack_file_share_user: ""
+openstack_file_share_key: ""

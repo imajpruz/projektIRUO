@@ -1,0 +1,51 @@
+---
+# Moodle 4.5 LTS: supported until late 2027, so it is the right choice for a
+# project whose documentation will outlive the semester.
+moodle_version: "405"
+moodle_download_url: "https://packaging.moodle.org/stable{{ moodle_version }}/moodle-latest-{{ moodle_version }}.tgz"
+
+moodle_web_root: /var/www/moodle
+moodle_data_dir: /var/moodledata
+moodle_backup_dir: /srv/moodle-backups
+techsprint_data_disk_dir: /mnt/techsprint-data
+
+# RHEL-family names. The Moodle nodes are always Rocky or CentOS Stream, as the
+# brief requires, so these do not need to be conditional.
+moodle_user: apache
+moodle_group: apache
+apache_service: httpd
+apache_conf_dir: /etc/httpd/conf.d
+
+moodle_packages:
+  - php
+  - php-cli
+  - php-common
+  - php-fpm
+  - php-mysqlnd
+  - php-xml
+  - php-mbstring
+  - php-curl
+  - php-zip
+  - php-gd
+  - php-intl
+  - php-soap
+  - php-opcache
+  - php-sodium
+
+moodle_db_name: moodle
+moodle_db_user: moodleuser
+moodle_db_password: ""
+moodle_db_host: ""
+
+moodle_admin_user: techadmin
+moodle_admin_password: ""
+moodle_admin_email: devops@techsprint.example
+
+# The load balancer's address, so Moodle generates URLs that work for a client
+# arriving through it rather than URLs pointing at a backend's private address.
+moodle_wwwroot: ""
+
+is_db_primary: false
+primary_node: ""
+env_slug: unknown
+env_owner_name: unknown

@@ -1,0 +1,11 @@
+---
+# Both Azure and OpenStack Moodle nodes use RHEL-family cloud images.
+common_packages:
+  - curl
+  - iputils
+  - tar
+  - firewalld
+  - policycoreutils-python-utils
+  - python3-libsemanage
+  # Creates the apache user/group before the storage role mounts Moodle data.
+  - httpd

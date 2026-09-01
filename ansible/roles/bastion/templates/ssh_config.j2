@@ -1,0 +1,17 @@
+{# SSH config for the DevOps Lead, generated from Terraform output. #}
+# Managed by Ansible. Every host in every TechSprint environment, by name.
+
+Host *
+    User {{ ansible_user }}
+    IdentityFile ~/.ssh/id_ed25519
+    StrictHostKeyChecking accept-new
+    ServerAliveInterval 30
+
+{% for slug, env in techsprint_environments.items() %}
+# --- {{ slug }} ---------------------------------------------------------------
+{% for ip in env.moodle_ips %}
+Host {{ slug }}-moodle-{{ loop.index }}
+    HostName {{ ip }}
+
+{% endfor %}
+{% endfor %}

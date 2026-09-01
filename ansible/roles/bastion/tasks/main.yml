@@ -1,0 +1,46 @@
+---
+# The jump host. This is the DevOps Lead's workstation and the single entry
+# point to every environment:
+#
+#   "Kreirajte centralni VM za voditelja tima koji će se moći spojiti na sve
+#    ostale VM-ove u sustavu putem SSH protokola."
+#
+# The lead's ability to reach every VM comes from three things: the private key
+# installed here, the SSH config that names every host, and the hub-to-spoke
+# peering (Azure) or cross-project role assignments (OpenStack) built by
+# Terraform.
+
+- name: Install curl for load-balancer checks
+  ansible.builtin.package:
+    name: curl
+    state: present
+
+- name: Ensure the SSH directory exists
+  ansible.builtin.file:
+    path: "/home/{{ ansible_user }}/.ssh"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0700"
+
+# The key that opens every Moodle node. 0600 and owned by the admin user: any
+# looser and OpenSSH refuses to use it, which is a useful built-in guardrail.
+- name: Install the environment private key
+  ansible.builtin.copy:
+    content: "{{ techsprint_private_key }}"
+    dest: "/home/{{ ansible_user }}/.ssh/id_ed25519"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0600"
+  no_log: true
+
+# Named hosts, so the lead types `ssh marion-moodle-1` rather than remembering
+# private addresses. Generated from the same Terraform output the Ansible
+# inventory came from, so it can never drift out of date.
+- name: Write an SSH config naming every environment host
+  ansible.builtin.template:
+    src: ssh_config.j2
+    dest: "/home/{{ ansible_user }}/.ssh/config"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: "0600"

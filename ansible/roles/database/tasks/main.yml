@@ -1,0 +1,111 @@
+---
+# MariaDB for Moodle.
+#
+# Architectural note worth a paragraph in the report: the brief asks for two
+# Moodle instances to "simulate high availability", but a managed database is
+# out of scope for a student subscription (Azure Database for MySQL Flexible
+# Server is roughly 25 EUR/month per developer). So node 1 runs MariaDB and
+# node 2 connects to it over the app subnet.
+#
+# That means the database is a single point of failure and the HA is only at the
+# web tier. Saying so explicitly is worth more than pretending otherwise - see
+# docs/13-known-limitations.md for the production alternative.
+
+- name: Install MariaDB server on the primary node
+  ansible.builtin.package:
+    name:
+      - mariadb-server
+      - python3-PyMySQL
+    state: present
+  when: is_db_primary
+
+- name: Install only the client on secondary nodes
+  ansible.builtin.package:
+    name: mariadb
+    state: present
+  when: not is_db_primary
+
+- name: Configure MariaDB to listen on the app subnet
+  ansible.builtin.copy:
+    dest: /etc/my.cnf.d/techsprint.cnf
+    mode: "0644"
+    content: |
+      # Managed by Ansible.
+      [mysqld]
+      # Bound to the private address, never 0.0.0.0: only the peer Moodle node
+      # in the same security group can reach it, and the security group already
+      # restricts 3306 to group members.
+      bind-address = {{ ansible_host }}
+      max_connections = 200
+      innodb_buffer_pool_size = 256M
+      innodb_file_per_table = 1
+      # Moodle requires these three or its installer refuses to proceed.
+      character-set-server = utf8mb4
+      collation-server = utf8mb4_unicode_ci
+      innodb_default_row_format = dynamic
+  when: is_db_primary
+  notify: Restart mariadb
+
+- name: Start MariaDB
+  ansible.builtin.systemd:
+    name: mariadb
+    state: started
+    enabled: true
+  when: is_db_primary
+
+- name: Apply pending MariaDB configuration changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Open 3306 to the app subnet only
+  ansible.posix.firewalld:
+    port: 3306/tcp
+    permanent: true
+    immediate: true
+    state: enabled
+    # A source-scoped zone rather than a blanket port opening, so firewalld
+    # agrees with the cloud security group instead of being wider than it.
+    zone: internal
+  when:
+    - is_db_primary
+    - ansible_os_family == 'RedHat'
+
+- name: Add the app subnet to the internal zone
+  ansible.posix.firewalld:
+    source: "{{ app_subnet_cidr }}"
+    zone: internal
+    permanent: true
+    immediate: true
+    state: enabled
+  when:
+    - is_db_primary
+    - ansible_os_family == 'RedHat'
+    - app_subnet_cidr | default('') | length > 0
+
+- name: Create the Moodle database
+  ansible.mysql.mysql_db:
+    name: "{{ moodle_db_name }}"
+    encoding: utf8mb4
+    collation: utf8mb4_unicode_ci
+    state: present
+    login_unix_socket: /var/lib/mysql/mysql.sock
+  when: is_db_primary
+
+- name: Create the Moodle database user
+  ansible.mysql.mysql_user:
+    name: "{{ moodle_db_user }}"
+    password: "{{ moodle_db_password }}"
+    # Both nodes connect, so the grant covers the whole app subnet rather than
+    # a single host. Scoped to one database: least privilege, and the user
+    # cannot read any other schema on the server.
+    host: "%"
+    priv: "{{ moodle_db_name }}.*:ALL"
+    state: present
+    login_unix_socket: /var/lib/mysql/mysql.sock
+  when: is_db_primary
+  no_log: true
+
+- name: Wait for the database to accept connections from this node
+  ansible.builtin.wait_for:
+    host: "{{ moodle_db_host }}"
+    port: 3306
+    timeout: 120

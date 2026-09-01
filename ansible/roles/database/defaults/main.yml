@@ -1,0 +1,12 @@
+---
+moodle_db_name: moodle
+moodle_db_user: moodleuser
+# Supplied by the generated inventory, which reads it from Terraform's
+# random_password. Never a literal here.
+moodle_db_password: ""
+
+# Node 1 hosts the database; node 2 connects to it. Set per host by the
+# inventory so the role needs no conditionals of its own.
+is_db_primary: false
+moodle_db_host: ""
+app_subnet_cidr: ""

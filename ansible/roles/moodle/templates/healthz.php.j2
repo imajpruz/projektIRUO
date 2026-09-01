@@ -1,0 +1,38 @@
+<?php
+header('Content-Type: text/plain; charset=utf-8');
+header('Cache-Control: no-store');
+
+function is_mountpoint(string $path): bool {
+    $real = realpath($path);
+    if ($real === false) {
+        return false;
+    }
+    foreach (@file('/proc/self/mountinfo') ?: [] as $line) {
+        $parts = explode(' ', trim($line));
+        if (($parts[4] ?? '') === $real) {
+            return true;
+        }
+    }
+    return false;
+}
+
+$checks = [
+    'moodle_config' => is_readable('{{ moodle_web_root }}/config.php'),
+    'data_disk' => is_mountpoint('{{ techsprint_data_disk_dir }}'),
+    'object_storage' => is_mountpoint('{{ moodle_data_dir }}') && is_writable('{{ moodle_data_dir }}'),
+    'file_storage' => is_mountpoint('{{ moodle_backup_dir }}') && is_writable('{{ moodle_backup_dir }}'),
+];
+
+$db = @fsockopen('{{ moodle_db_host }}', 3306, $errno, $error, 2.0);
+$checks['database'] = $db !== false;
+if ($db !== false) {
+    fclose($db);
+}
+
+$healthy = !in_array(false, $checks, true);
+http_response_code($healthy ? 200 : 503);
+printf("status=%s\n", $healthy ? 'ok' : 'fail');
+printf("node={{ inventory_hostname }}\n");
+foreach ($checks as $name => $result) {
+    printf("%s=%s\n", $name, $result ? 'ok' : 'fail');
+}
