@@ -1,0 +1,28 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the development toolchain
+        run: bash .cursor/install.sh
+
+      - name: Check Terraform formatting
+        run: |
+          terraform -chdir=iac/azure fmt -check -recursive
+          terraform -chdir=iac/openstack fmt -check -recursive
+
+      - name: Run offline validation
+        run: make lint
