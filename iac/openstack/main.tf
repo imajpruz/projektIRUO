@@ -44,7 +44,7 @@ locals {
   // OpenStack has no tag system as uniform as Azure's, so the two mandated
   // tags are applied three ways depending on the resource type: as `tags` on
   // Neutron objects, as `metadata` on Nova servers, and as properties on
-  // containers. docs/04-naming-and-tagging.md explains the mapping.
+  // containers. docs/architecture.md explains the mapping.
   common_tags = [
     "project=${var.project_name}",
     "environment=${var.environment}",
@@ -182,7 +182,7 @@ resource "openstack_identity_user_membership_v3" "lead" {
 // project boundary rather than from a narrow role.
 //
 // This asymmetry with Azure is a genuine finding and belongs in the report -
-// see docs/06-cloud-comparison.md.
+// see docs/cloud-comparison.md.
 
 data "openstack_identity_role_v3" "member" {
   name = "member"
@@ -234,8 +234,8 @@ resource "openstack_identity_role_assignment_v3" "lead_management" {
   role_id    = data.openstack_identity_role_v3.member.id
 }
 
-// The Academy admin receives a project role so the staged Terraform roots can
-// exchange the system-scoped token for a token scoped to each target project.
+// The Academy admin receives a project role so the per-project providers in
+// data/ can obtain a token scoped to each target project.
 resource "openstack_identity_role_assignment_v3" "deployer_developer" {
   for_each = var.developers
 
@@ -348,6 +348,7 @@ resource "openstack_lb_flavor_v2" "single_amphora" {
   enabled           = true
 }
 
-// Tenant data-plane resources are intentionally absent here. See:
-//   environment/ - one project-scoped workspace per developer
-//   management/  - the central multihomed jump host and its single floating IP
+// Tenant data-plane resources are intentionally absent here. They live in
+// data/, which declares one provider alias per project because Nova, Cinder,
+// Swift and Manila always create in the project their token is scoped to,
+// and a provider cannot be configured for a project that does not exist yet.

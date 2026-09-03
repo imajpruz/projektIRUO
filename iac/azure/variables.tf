@@ -179,7 +179,7 @@ variable "os_image" {
     acceptance on the subscription:
       az vm image terms accept --publisher resf --offer rockylinux-x86_64 --plan 9-base
     CentOS Stream 9 or an Azure Linux image are documented alternatives in
-    docs/05-design-decisions.md.
+    docs/architecture.md#design-decisions.
   EOT
   type = object({
     publisher = string

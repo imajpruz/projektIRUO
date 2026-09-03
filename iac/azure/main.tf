@@ -76,7 +76,7 @@ provider "azuread" {
 //   rg-techsprint-test-marion
 //   st techsprint test marion  ->  sttechsprinttestmarion  (no dashes allowed)
 //
-// Documented in docs/04-naming-and-tagging.md.
+// Documented in docs/architecture.md#naming-convention-and-tagging.
 // ----------------------------------------------------------------------------
 locals {
   project     = var.project_name // "techsprint"

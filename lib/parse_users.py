@@ -12,7 +12,7 @@ the CSV is the single source of truth for how many environments get built and
 who owns each one. That is what makes the deployment "za varijabilni broj
 korisnika" rather than hardcoded for three people.
 
-    python3 lib/parse_users.py examples/users.csv --out build/users.auto.tfvars.json
+    python3 lib/parse_users.py users.example.csv --out build/users.auto.tfvars.json
 
 Deliberately stdlib-only: the marked deliverable is a script that runs on a
 clean machine without a pip install step.

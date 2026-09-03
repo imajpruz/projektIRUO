@@ -70,7 +70,7 @@ variable "environment_short" {
 //
 // Every value in this block differs per OpenStack installation. Discover yours
 // with `make openstack-discover`, which runs the openstack CLI queries in
-// docs/10-openstack-discovery.md.
+// docs/troubleshooting.md#openstack-lab-discovery.
 
 variable "external_network_id" {
   description = <<-EOT
@@ -104,7 +104,7 @@ variable "image_name" {
   description = <<-EOT
     Rocky Linux or CentOS Stream image, as the brief allows.
       openstack image list --status active
-    If neither exists in your lab, upload one - docs/10 has the command.
+    If neither exists in your lab, upload one - docs/troubleshooting.md has the command.
   EOT
   type        = string
   default     = "Rocky-9-GenericCloud"

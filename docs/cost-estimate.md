@@ -21,7 +21,7 @@ Assumptions:
 ## Current billable topology
 
 | Resource | Region | Quantity | Pricing unit |
-|---|---|---:|---|
+|---|---|---|---|
 | `Standard_B2s` Moodle VM | Denmark East | 2 | hour |
 | `Standard_D2ls_v6` Moodle VM | Austria East | 2 | hour |
 | `Standard_A1_v2` jump VM | Denmark East | 1 | hour |
@@ -112,9 +112,9 @@ az consumption usage list \
 Build, capture evidence and destroy on the same day:
 
 ```bash
-./deploy.sh --csv examples/users.csv --cloud azure --yes
+./deploy.sh --csv users.example.csv --cloud azure --yes
 ./lib/verify.sh --cloud azure | tee evidence/verification.txt
-./deploy.sh --csv examples/users.csv --cloud azure --destroy --yes
+./deploy.sh --csv users.example.csv --cloud azure --destroy --yes
 ```
 
 Deallocating VMs stops compute charges but leaves disks, load balancers, storage
@@ -131,5 +131,5 @@ outside the tenant billing API.
 
 ---
 
-Previous: [Testing and evidence](14-testing-and-evidence.md) ·
-Next: [Troubleshooting](16-troubleshooting.md)
+Previous: [Testing and evidence](testing-and-evidence.md) ·
+Next: [Troubleshooting](troubleshooting.md)

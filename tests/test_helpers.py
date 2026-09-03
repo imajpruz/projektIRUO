@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
 import tempfile
 import unittest
-from argparse import Namespace
 from pathlib import Path
 
-from lib import openstack_stages, parse_users, render_inventory
+from lib import parse_users, render_inventory
 
 
 def terraform_output(value: object) -> dict:
@@ -60,119 +58,57 @@ class CsvParserTests(unittest.TestCase):
             )
 
 
-class OpenStackStageTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.temp = tempfile.TemporaryDirectory()
-        self.root = Path(self.temp.name)
-        self.key = self.root / "id_ed25519"
-        self.key.write_text("test-private-key\n", encoding="utf-8")
+class OpenStackTwoRootTests(unittest.TestCase):
+    """The data plane is one root with static provider aliases.
 
-        self.settings = {
-            "project_name": "techsprint",
-            "environment": "testing",
-            "environment_short": "test",
-            "external_network_id": "00000000-0000-0000-0000-000000000001",
-            "external_network_name": "provider-datacentre",
-            "storage_network_id": "00000000-0000-0000-0000-000000000002",
-            "image_name": "rhel8",
-            "jump_flavor_name": "default",
-            "mgmt_cidr": "10.100.0.0/24",
-            "dns_nameservers": ["8.8.8.8"],
-            "admin_source_ip": "192.0.2.10/32",
-            "admin_username": "cloud-user",
-            "moodle_instance_count": 2,
-            "data_disk_size_gb": 32,
-            "file_share_size_gb": 5,
-            "manila_share_type": "techsprint-cephfs",
-        }
-        bootstrap = {
-            "domain_name": "TechSprint",
-            "management_project": {"id": "mgmt-id", "name": "proj-techsprint-test-mgmt"},
-            "developer_projects": {
-                "marion": {
-                    "id": "dev-id",
-                    "name": "proj-techsprint-test-marion",
-                    "developer": {
-                        "display_name": "Mario Nikolis",
-                        "username": "mario.nikolis",
-                        "subnet_app_cidr": "10.10.1.0/24",
-                    },
-                }
-            },
-            "environment_secrets": {
-                "marion": {
-                    "database_password": "db-secret",
-                    "moodle_admin_password": "admin-secret",
-                    "object_username": "svc-techsprint-test-marion-swift",
-                    "object_password": "object-secret",
-                }
-            },
-            "application_flavor_name": "techsprint.2c4r",
-            "load_balancer_flavor_id": "lb-flavor-id",
-            "ssh": {"private_key_path": str(self.key), "public_key": "ssh-ed25519 test"},
-            "settings": self.settings,
-        }
-        self.bootstrap = self.root / "bootstrap.json"
-        self.bootstrap.write_text(
-            json.dumps(
-                {
-                    "bootstrap_data": terraform_output(bootstrap),
-                    "identity_summary": terraform_output({"developers": {}}),
-                    "initial_passwords": terraform_output(
-                        {"mario.nikolis": "developer-secret"}
-                    ),
-                }
-            ),
-            encoding="utf-8",
-        )
+    It replaced three roots, a Terraform workspace per developer and a typed
+    stage bridge. These assertions exist so that machinery cannot creep back.
+    """
 
-    def tearDown(self) -> None:
-        self.temp.cleanup()
+    def test_data_root_reads_bootstrap_state_directly(self) -> None:
+        data_root = Path("iac/openstack/data/main.tf").read_text()
+        self.assertIn('data "terraform_remote_state" "bootstrap"', data_root)
+        self.assertIn("bootstrap_public", data_root)
+        self.assertIn("bootstrap_secrets", data_root)
 
-    def test_environment_and_management_vars_are_private(self) -> None:
-        env_vars = self.root / "environment-vars.json"
-        openstack_stages.environment_vars(
-            Namespace(
-                bootstrap_output=self.bootstrap,
-                slug="marion",
-                auth_url="https://openstack.example/v3",
-                out=env_vars,
-            )
-        )
-        data = json.loads(env_vars.read_text(encoding="utf-8"))
-        self.assertEqual(data["developer"]["username"], "mario.nikolis")
-        self.assertEqual(data["object_username"], "svc-techsprint-test-marion-swift")
-        self.assertNotEqual(data["object_password"], "developer-secret")
-        self.assertEqual(data["settings"]["storage_network_id"], self.settings["storage_network_id"])
-        self.assertEqual(os.stat(env_vars).st_mode & 0o777, 0o600)
+    def test_every_developer_slot_has_its_own_provider_alias(self) -> None:
+        data_root = Path("iac/openstack/data/main.tf").read_text()
+        for slot in range(3):
+            self.assertIn(f'"developer_{slot}"', data_root)
+            self.assertIn(f"openstack.developer_{slot}", data_root)
 
-        environment_dir = self.root / "environments"
-        environment_dir.mkdir()
-        (environment_dir / "marion.json").write_text(
-            json.dumps(
-                {
-                    "management_attachment": terraform_output(
-                        {
-                            "network_id": "network-id",
-                            "subnet_id": "subnet-id",
-                            "jump_fixed_ip": "10.10.1.253",
-                        }
-                    )
-                }
-            ),
-            encoding="utf-8",
-        )
-        management_vars = self.root / "management-vars.json"
-        openstack_stages.management_vars(
-            Namespace(
-                bootstrap_output=self.bootstrap,
-                environment_output_dir=environment_dir,
-                out=management_vars,
-            )
-        )
-        data = json.loads(management_vars.read_text(encoding="utf-8"))
-        self.assertEqual(data["developer_networks"]["marion"]["network_id"], "network-id")
-        self.assertEqual(os.stat(management_vars).st_mode & 0o777, 0o600)
+    def test_slot_capacity_is_enforced_against_the_csv(self) -> None:
+        variables = Path("iac/openstack/data/variables.tf").read_text()
+        self.assertIn("length(var.developers) <= 3", variables)
+        self.assertIn("before adding a fourth OpenStack developer", variables)
+
+    def test_bootstrap_splits_public_and_secret_outputs(self) -> None:
+        outputs = Path("iac/openstack/outputs.tf").read_text()
+        self.assertIn('output "bootstrap_public"', outputs)
+        self.assertIn('output "bootstrap_secrets"', outputs)
+        secrets = outputs.split('output "bootstrap_secrets"', 1)[1]
+        self.assertIn("sensitive   = true", secrets)
+
+    def test_driver_has_no_workspaces_or_stage_bridge(self) -> None:
+        driver = Path("lib/deploy_openstack.sh").read_text()
+        # The header comment says why workspaces are gone, so match the
+        # subcommands rather than the word.
+        for subcommand in ("workspace select", "workspace new", "workspace list",
+                           "workspace delete"):
+            self.assertNotIn(subcommand, driver)
+        self.assertNotIn("openstack_stages", driver)
+        # Checked as files, not directories: an empty directory or a leftover
+        # .terraform cache can outlive `git rm` on a working copy.
+        self.assertFalse(Path("lib/openstack_stages.py").exists())
+        self.assertFalse(Path("iac/openstack/environment/main.tf").exists())
+        self.assertFalse(Path("iac/openstack/management/main.tf").exists())
+
+    def test_data_output_matches_the_azure_inventory_contract(self) -> None:
+        outputs = Path("iac/openstack/data/outputs.tf").read_text()
+        self.assertIn('output "inventory_data"', outputs)
+        for key in ("jump_host", "admin_username", "ssh_key", "environments"):
+            self.assertIn(key, outputs)
+        self.assertIn("sensitive   = true", outputs)
 
 
 class InventoryTests(unittest.TestCase):
@@ -285,13 +221,12 @@ class RepositoryContractTests(unittest.TestCase):
         self.assertIn("refusing to synthesize destroy inputs", deploy)
         self.assertNotIn('cp "$destroy_users" "$saved_users"', deploy)
 
-    def test_management_destroy_inputs_survive_clean(self) -> None:
+    def test_destroy_inputs_survive_clean(self) -> None:
         helper = Path("lib/deploy_openstack.sh").read_text()
         self.assertIn(
-            'OS_MANAGEMENT_VARS="$OS_MANAGEMENT_STACK/deployment.auto.tfvars.json"',
+            'die "missing iac/openstack/data/users.auto.tfvars.json; cannot destroy safely"',
             helper,
         )
-        self.assertIn('if [[ ! -f "$OS_MANAGEMENT_VARS" ]]', helper)
         clean_recipe = Path("Makefile").read_text().split("clean:", 1)[1]
         self.assertNotIn("users.auto.tfvars.json", clean_recipe)
 
@@ -368,7 +303,7 @@ class RepositoryContractTests(unittest.TestCase):
     def test_cloud_init_degraded_status_and_route_retries(self) -> None:
         site = Path("ansible/site.yml").read_text()
         self.assertIn("cloud_init_wait.rc not in [0, 2]", site)
-        management = Path("iac/openstack/management/main.tf").read_text()
+        management = Path("iac/openstack/data/main.tf").read_text()
         application = Path(
             "iac/openstack/modules/rhosp-developer-env/cloud-init.yaml.tftpl"
         ).read_text()

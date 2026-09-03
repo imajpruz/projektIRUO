@@ -10,7 +10,7 @@ OpenStack control plane have been tested; the first workload smoke test is still
 pending and is tracked in [docs/setup-progress.md](docs/setup-progress.md).
 
 ```bash
-./deploy.sh --csv examples/users.csv --cloud both
+./deploy.sh --csv users.example.csv --cloud both
 ```
 
 Project brief: *Sveučilište Algebra Bernays, Katedra za sistemsko inženjerstvo i
@@ -22,12 +22,11 @@ kibernetičku sigurnost*. Deadline **12 September 2026**.
 
 | | |
 |---|---|
-| **Just want to run it?** | [Quickstart — everything after `az login`](docs/00-quickstart.md) |
-| **New to the repo?** | [How the deployment works](docs/03-how-it-works.md) |
-| **Setting up?** | [Prerequisites](docs/02-prerequisites.md) |
-| **Writing the document?** | [Rubric traceability](docs/01-rubric-traceability.md) — every scored line mapped to where it is implemented |
-| **Recording the video?** | [Demo video script](docs/17-video-script.md) |
-| **Something broke?** | [Troubleshooting](docs/16-troubleshooting.md) |
+| **Just want to run it?** | [Setup — everything after `az login`](docs/setup.md) |
+| **New to the repo?** | [How the deployment works](docs/architecture.md#how-the-deployment-works) |
+| **Writing the document?** | [Rubric traceability](docs/rubric-traceability.md) — every scored line mapped to where it is implemented |
+| **Recording the video?** | [Demo video script](docs/testing-and-evidence.md#demo-video-script) |
+| **Something broke?** | [Troubleshooting](docs/troubleshooting.md) |
 
 ## What gets built, per CSV row
 
@@ -65,22 +64,22 @@ without routing between them.
 
 ```bash
 # 1. Tooling and credentials
-make check                                  # docs/02-prerequisites.md
+make check                                  # docs/setup.md#prerequisites
 
 # 2. Lab-specific values for the OpenStack side
 make openstack-discover                     # prints what to put in terraform.tfvars
 
 # 3. See the plan without creating anything
-./deploy.sh --csv examples/users.csv --cloud azure --plan-only
+./deploy.sh --csv users.example.csv --cloud azure --plan-only
 
 # 4. Build it
-./deploy.sh --csv examples/users.csv --cloud both
+./deploy.sh --csv users.example.csv --cloud both
 
 # 5. Collect the evidence the report needs
 ./lib/verify.sh --cloud azure | tee evidence/verify-azure.txt
 
 # 6. Tear it down the same day - see the cost note below
-./deploy.sh --csv examples/users.csv --cloud both --destroy
+./deploy.sh --csv users.example.csv --cloud both --destroy
 ```
 
 ## The CSV is the interface
@@ -100,8 +99,8 @@ would produce the same resource name, and assigns each developer a disjoint
 Adding a fourth person is one line:
 
 ```bash
-echo 'ivan;ivic;developer' >> examples/users.csv
-./deploy.sh --csv examples/users.csv --cloud azure --plan-only
+echo 'ivan;ivic;developer' >> users.example.csv
+./deploy.sh --csv users.example.csv --cloud azure --plan-only
 # Expect only additions, with 0 to change and 0 to destroy.
 ```
 
@@ -114,30 +113,23 @@ Terraform's `for_each` keys resources by slug rather than a fragile list index.
 The minimum still contains four application VMs, five total VMs, two managed
 load balancers, storage, disks, and cross-region peering. It must not be left
 running on a student grant. The current-topology worksheet in
-[docs/15-cost-estimate.md](docs/15-cost-estimate.md) still needs exact regional
+[docs/cost-estimate.md](docs/cost-estimate.md) still needs exact regional
 prices before it is report-ready. Build, capture evidence, and destroy on the
 same day.
 
 ## Documentation
 
-| | Guide | Rubric |
+Six documents, consolidated so each maps onto a section of the report.
+
+| Guide | Contents | Rubric |
 |---|---|---|
-| 00 | [Quickstart — after `az login`](docs/00-quickstart.md) | — |
-| 01 | [Rubric traceability](docs/01-rubric-traceability.md) | all |
-| 02 | [Prerequisites](docs/02-prerequisites.md) | — |
-| 03 | [How the deployment works](docs/03-how-it-works.md) | I2/I4 automation |
-| 04 | [Naming and tagging](docs/04-naming-and-tagging.md) | I1, 6 pts |
-| 05 | [Design decisions](docs/05-design-decisions.md) | **I1, 7 pts** |
-| 06 | [Azure and OpenStack compared](docs/06-cloud-comparison.md) | I1, 4 pts |
-| 07 | [OpenStack networking explained](docs/07-openstack-network.md) | I2 |
-| 08 | [Load balancer: Azure LB vs App Gateway](docs/08-azure-loadbalancer.md) | I4, 2 pts |
-| 09 | [Azure networking explained](docs/09-azure-network.md) | I4 |
-| 10 | [Red Hat Academy lab discovery](docs/10-openstack-discovery.md) | — |
-| 13 | [Known limitations](docs/13-known-limitations.md) | credibility |
-| 14 | [Testing and evidence](docs/14-testing-and-evidence.md) | all |
-| 15 | [Azure cost estimate](docs/15-cost-estimate.md) | I1, 3 pts |
-| 16 | [Troubleshooting](docs/16-troubleshooting.md) | — |
-| 17 | [Demo video script](docs/17-video-script.md) | required |
+| [Setup](docs/setup.md) | Quickstart after `az login`, then the full prerequisites reference | — |
+| [Architecture and design decisions](docs/architecture.md) | How the deployment works, design decisions, Azure and OpenStack networking, load balancer comparison, naming and tagging | **I1 13 pts**, I2, I4 |
+| [Azure and OpenStack compared](docs/cloud-comparison.md) | Element-by-element comparison, the recommendation, and every known limitation | I1, 4 pts |
+| [Rubric traceability](docs/rubric-traceability.md) | Every scored line mapped to its implementation and evidence | all |
+| [Testing and evidence](docs/testing-and-evidence.md) | Verification, negative tests, screenshot list, and the demo video script | all |
+| [Cost estimate](docs/cost-estimate.md) | Billable topology and the monthly worksheet | I1, 3 pts |
+| [Troubleshooting](docs/troubleshooting.md) | Symptom-first fixes, plus the Red Hat Academy lab discovery | — |
 
 ### The four required diagrams — 12 points
 
@@ -154,12 +146,11 @@ Write-up skeleton: [docs/templates/report-outline.md](docs/templates/report-outl
 
 ```
 deploy.sh                  The one script the brief requires
-examples/users.csv         Input format: ime;prezime;rola
+users.example.csv          Input format: ime;prezime;rola
 
 lib/
   parse_users.py           CSV -> validated, slugified Terraform input
-  deploy_openstack.sh      Internal project-scoped OpenStack orchestration
-  openstack_stages.py      Passes typed data between OpenStack stages
+  deploy_openstack.sh      Internal two-root OpenStack orchestration
   render_inventory.py      Terraform output -> Ansible inventory (with the bastion ProxyCommand)
   verify.sh                Rubric-labelled checks, isolation tests are negative
 
@@ -170,8 +161,8 @@ iac/azure/                 Hub-and-spoke, CSV service principals, custom RBAC
   modules/hub/             Bastion: the only public IP
   modules/developer-env/   One isolated environment
 iac/openstack/             System-scoped identity and global bootstrap
-  environment/             One project-scoped Terraform workspace per developer
-  management/              Central multihomed jump host and sole floating IP
+  data/                    Every tenant resource, one provider alias per project,
+                           plus the central jump host and sole floating IP
   modules/rhosp-developer-env/
                            Nova, Cinder, Swift, Manila, and Amphora per project
 
@@ -225,7 +216,8 @@ validation on both stacks, and shellcheck at warning level.
 
 ## What this does not do
 
-Honest list, expanded in [docs/13-known-limitations.md](docs/13-known-limitations.md):
+Honest list, expanded in
+[docs/cloud-comparison.md](docs/cloud-comparison.md#known-limitations):
 the database is a single point of failure (a managed instance is ~25 EUR/month
 per developer), sessions use source-IP affinity rather than a shared store,
 traffic inside the VNet is HTTP, and the Azure Files mount does need the storage

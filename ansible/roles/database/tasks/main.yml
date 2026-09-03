@@ -9,7 +9,7 @@
 #
 # That means the database is a single point of failure and the HA is only at the
 # web tier. Saying so explicitly is worth more than pretending otherwise - see
-# docs/13-known-limitations.md for the production alternative.
+# docs/cloud-comparison.md#known-limitations for the production alternative.
 
 - name: Install MariaDB server on the primary node
   ansible.builtin.package:

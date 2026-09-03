@@ -307,3 +307,51 @@ account IDs, tenant IDs, tokens, or generated credentials.
   checks, 23 unit tests pass, Ansible passes its production profile with zero
   findings, and ShellCheck/Python compilation are clean.
 - No Terraform plan/apply/destroy or command accessing a live cloud was run.
+
+## 2026-09-03
+
+### Documentation consolidated
+
+- Merged the sixteen numbered guides into seven named ones, keeping the original
+  wording: `architecture.md` (how it works, design decisions, both networking
+  chapters, the load-balancer comparison, naming and tagging),
+  `cloud-comparison.md` (comparison plus known limitations), `setup.md`
+  (quickstart plus prerequisites), `testing-and-evidence.md` (verification plus
+  the video script), `troubleshooting.md` (symptoms plus lab discovery),
+  `rubric-traceability.md` and `cost-estimate.md`.
+- Moved `examples/users.csv` to `users.example.csv` at the repository root and
+  updated every reference in `deploy.sh`, the `Makefile`, `lib/parse_users.py`
+  and the documentation.
+- The four required diagrams keep their own files under `docs/diagrams/`.
+
+### OpenStack collapsed from three Terraform roots to two
+
+- Added `iac/openstack/data/`, which holds every tenant resource and the
+  management jump host. It declares one provider alias per developer slot,
+  because Nova, Cinder, Swift and Manila always create in the project their
+  token is scoped to, while Neutron and Octavia accept an explicit `tenant_id`.
+- Removed `iac/openstack/environment/`, `iac/openstack/management/` and
+  `lib/openstack_stages.py`, and rewrote `lib/deploy_openstack.sh` from 396 to
+  about 300 lines. The per-developer Terraform workspaces, the per-project token
+  exchange, the typed stage files and the output merging are all gone; roughly
+  700 lines net were removed.
+- `data/` reads the bootstrap state directly and emits one `inventory_data`
+  output in the same shape as the Azure root, so each cloud is now a single
+  `terraform output -json`. `plan`, state and `--destroy` all still work.
+- Split the bootstrap output into non-sensitive `bootstrap_public` and sensitive
+  `bootstrap_secrets`, because sensitivity propagates through
+  `terraform_remote_state` and would otherwise hide the per-developer summary.
+  The unused `bootstrap_data` output was dropped.
+- Provider aliases cannot be generated with `for_each`, so OpenStack capacity is
+  three developer slots; a fourth needs one more provider and module block, and
+  a variable validation fails with that instruction. Slot order is pinned to
+  `network_index` so an existing developer never moves alias. The
+  variable-user-count requirement is demonstrated on Azure, which has no limit.
+- The Manila share type is still created from the driver: it is a cloud-wide
+  object whose per-project access list the Terraform provider does not expose.
+- Offline verification passes: three Terraform roots validate and pass format
+  checks, 29 unit tests pass, Ansible passes its production profile with zero
+  findings, and ShellCheck is clean.
+- Still live-only: a real `./deploy.sh --cloud openstack`. Offline validation
+  cannot exercise the `terraform_remote_state` read or the slot merge, which
+  require an applied bootstrap. No cloud command was run.

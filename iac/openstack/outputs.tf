@@ -1,6 +1,11 @@
-output "bootstrap_data" {
-  description = "Project IDs and credentials consumed by the staged OpenStack roots"
-  sensitive   = true
+// Published split by sensitivity, because sensitivity propagates through
+// terraform_remote_state: if ids, names and settings shared one output with the
+// generated credentials, every output data/ derives from them would have to be
+// marked sensitive too, and the per-developer summary would print as
+// "(sensitive value)".
+
+output "bootstrap_public" {
+  description = "Non-secret project ids, flavors and lab settings consumed by data/"
   value = {
     domain_name = openstack_identity_project_v3.domain.name
     management_project = {
@@ -9,17 +14,8 @@ output "bootstrap_data" {
     }
     developer_projects = {
       for slug, project in openstack_identity_project_v3.developer : slug => {
-        id        = project.id
-        name      = project.name
-        developer = var.developers[slug]
-      }
-    }
-    environment_secrets = {
-      for slug, developer in var.developers : slug => {
-        database_password     = random_password.database[slug].result
-        moodle_admin_password = random_password.moodle_admin[slug].result
-        object_username       = openstack_identity_user_v3.object_storage[slug].name
-        object_password       = random_password.object_storage[slug].result
+        id   = project.id
+        name = project.name
       }
     }
     application_flavor_name = openstack_compute_flavor_v2.moodle.name
@@ -45,6 +41,19 @@ output "bootstrap_data" {
       data_disk_size_gb     = var.data_disk_size_gb
       file_share_size_gb    = var.file_share_size_gb
       manila_share_type     = var.manila_share_type
+    }
+  }
+}
+
+output "bootstrap_secrets" {
+  description = "Generated per-environment credentials consumed by data/"
+  sensitive   = true
+  value = {
+    for slug, developer in var.developers : slug => {
+      database_password     = random_password.database[slug].result
+      moodle_admin_password = random_password.moodle_admin[slug].result
+      object_username       = openstack_identity_user_v3.object_storage[slug].name
+      object_password       = random_password.object_storage[slug].result
     }
   }
 }

@@ -215,7 +215,7 @@ resource "azurerm_subnet_network_security_group_association" "app" {
 //
 // Internal, not public: the brief forbids public access to anything but the
 // jump host, so the lead reaches Moodle through an SSH tunnel via the bastion.
-// docs/08-azure-loadbalancer.md compares this with Application Gateway.
+// docs/architecture.md compares this with Application Gateway.
 // ----------------------------------------------------------------------------
 resource "azurerm_lb" "moodle" {
   name                = "lb-${local.env_name}-moodle"
