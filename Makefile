@@ -5,7 +5,7 @@
 
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
-CSV ?= examples/users.csv
+CSV ?= users.example.csv
 
 .PHONY: help check lint test test-csv fmt fmt-check validate openstack-discover \
         plan-azure plan-openstack deploy-azure deploy-openstack deploy-both \
@@ -19,7 +19,7 @@ help: ## Show this list
 	  | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 	@echo ""
 	@echo "  Override the users file with CSV=path/to/file.csv"
-	@echo "  Start at docs/03-how-it-works.md; grading map in docs/01-rubric-traceability.md"
+	@echo "  Start at docs/architecture.md; grading map in docs/rubric-traceability.md"
 	@echo ""
 
 # ------------------------------------------------------------------------------
@@ -60,7 +60,7 @@ lint: fmt-check validate test ## Everything: terraform, tests, ansible, shell, p
 	@echo "== shell =="
 	@shellcheck -S warning deploy.sh lib/*.sh
 	@echo "== python =="
-	@python3 -m py_compile lib/parse_users.py lib/render_inventory.py lib/openstack_stages.py
+	@python3 -m py_compile lib/parse_users.py lib/render_inventory.py
 	@rm -rf lib/__pycache__
 	@echo ""
 	@echo "all checks passed"
@@ -80,10 +80,8 @@ validate: ## Validate both Terraform stacks (no credentials needed)
 	@echo "== terraform: openstack =="
 	@terraform -chdir=iac/openstack init -backend=false -input=false >/dev/null
 	@terraform -chdir=iac/openstack validate
-	@terraform -chdir=iac/openstack/environment init -backend=false -input=false >/dev/null
-	@terraform -chdir=iac/openstack/environment validate
-	@terraform -chdir=iac/openstack/management init -backend=false -input=false >/dev/null
-	@terraform -chdir=iac/openstack/management validate
+	@terraform -chdir=iac/openstack/data init -backend=false -input=false >/dev/null
+	@terraform -chdir=iac/openstack/data validate
 
 test: ## Run all offline unit tests
 	@python3 -m unittest discover -s tests -v
@@ -103,7 +101,7 @@ openstack-discover: ## Print the lab-specific values for iac/openstack/terraform
 	@openstack network list --external -f value -c ID -c Name | sed 's/^/  /'
 	@echo "== cloud Linux images (image_name) =="
 	@openstack image list --status active -f value -c Name | grep -iE 'rocky|centos|stream|rhel' | sed 's/^/  /' \
-	  || echo "  NONE FOUND - see docs/10-openstack-discovery.md"
+	  || echo "  NONE FOUND - see docs/troubleshooting.md"
 	@echo "== flavors: need vcpus=2, ram=4096; bootstrap creates one if absent =="
 	@openstack flavor list -f value -c Name -c RAM -c VCPUs | awk '$$3==2 && $$2>=4000 {print "  "$$1"  ram="$$2" vcpus="$$3}' \
 	  || echo "  none with exactly 2 vCPU / 4 GB - check the full list"

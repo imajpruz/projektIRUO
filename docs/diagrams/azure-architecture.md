@@ -138,4 +138,4 @@ az network nic list --query \
 
 `<type>-<project>-<env>-<scope>-<index>`, so a resource's owner and purpose are
 readable without opening it. Full convention in
-[../04-naming-and-tagging.md](../04-naming-and-tagging.md).
+[../architecture.md](../architecture.md#naming-convention-and-tagging).

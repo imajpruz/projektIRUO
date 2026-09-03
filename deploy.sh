@@ -6,12 +6,12 @@
 #  infrastrukturu za varijabilni broj korisnika."
 # "Skripta se pokreće jednom, ne pokreće se više skripti."
 #
-#   ./deploy.sh --csv examples/users.csv --cloud azure
-#   ./deploy.sh --csv examples/users.csv --cloud openstack
-#   ./deploy.sh --csv examples/users.csv --cloud both
+#   ./deploy.sh --csv users.example.csv --cloud azure
+#   ./deploy.sh --csv users.example.csv --cloud openstack
+#   ./deploy.sh --csv users.example.csv --cloud both
 #
-#   ./deploy.sh --csv examples/users.csv --cloud azure --plan-only
-#   ./deploy.sh --csv examples/users.csv --cloud azure --destroy
+#   ./deploy.sh --csv users.example.csv --cloud azure --plan-only
+#   ./deploy.sh --csv users.example.csv --cloud azure --destroy
 #
 # Everything between reading the CSV and a working Moodle happens here: parse,
 # validate, terraform apply, render the Ansible inventory from the outputs,
@@ -52,7 +52,7 @@ Required:
 
 Required unless --destroy:
   --csv <path>       Users file in the brief's format: ime;prezime;rola
-                     Roles: developer, devops_lead. See examples/users.csv
+                     Roles: developer, devops_lead. See users.example.csv
 
 Options:
   --plan-only        Show the Terraform plan and stop. Creates nothing.
@@ -62,9 +62,9 @@ Options:
   -h, --help         This text.
 
 Examples:
-  ./deploy.sh --csv examples/users.csv --cloud azure --plan-only
-  ./deploy.sh --csv examples/users.csv --cloud both --yes
-  ./deploy.sh --csv examples/users.csv --cloud azure --destroy
+  ./deploy.sh --csv users.example.csv --cloud azure --plan-only
+  ./deploy.sh --csv users.example.csv --cloud both --yes
+  ./deploy.sh --csv users.example.csv --cloud azure --destroy
 
 What it does, in order: parse and validate the CSV, terraform apply, render the
 Ansible inventory from the Terraform outputs, run Ansible, verify. No step in
@@ -122,7 +122,7 @@ source "$REPO_ROOT/lib/deploy_openstack.sh"
 step "Preflight: tooling and credentials"
 
 require_cmd() {
-  command -v "$1" >/dev/null 2>&1 || die "$1 is not installed. See docs/02-prerequisites.md"
+  command -v "$1" >/dev/null 2>&1 || die "$1 is not installed. See docs/setup.md#prerequisites"
 }
 
 require_cmd terraform
@@ -347,7 +347,7 @@ print(json.load(open('$OUTPUT_JSON'))['inventory_data']['value']['admin_username
   # ---------------------------------------------------------------------------
   step "Verifying the $cloud deployment"
   "$REPO_ROOT/lib/verify.sh" --cloud "$cloud" --output "$OUTPUT_JSON" \
-    || die "$cloud verification failed; see the table above and docs/16-troubleshooting.md"
+    || die "$cloud verification failed; see the table above and docs/troubleshooting.md"
 done
 
 # =============================================================================
@@ -392,8 +392,12 @@ Azure helpers, when Azure was deployed:
   terraform -chdir=iac/azure output environments
   terraform -chdir=iac/azure output -raw ssh_config_snippet >> ~/.ssh/config
 
-OpenStack's staged details are merged into build/openstack-output.json and its
-generated inventory is ansible/inventory/openstack.yml. Both are mode 0600.
+OpenStack helpers, when OpenStack was deployed:
+  terraform -chdir=iac/openstack/data output environments
+  terraform -chdir=iac/openstack/data output -raw ssh_config_snippet >> ~/.ssh/config
 
-Next: docs/14-testing-and-evidence.md for the checks the report needs.
+Its Terraform output is build/openstack-output.json and its generated inventory
+is ansible/inventory/openstack.yml. Both are mode 0600.
+
+Next: docs/testing-and-evidence.md for the checks the report needs.
 EOF

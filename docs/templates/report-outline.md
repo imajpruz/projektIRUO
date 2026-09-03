@@ -33,7 +33,7 @@ Auto-generated. Every figure numbered and referenced from the body text.
 ## 2. Requirements analysis (2 pages) — *collects nothing directly, enables everything*
 
 Table of every requirement from the brief against how it is met and where it is
-evidenced. Source: [../01-rubric-traceability.md](../01-rubric-traceability.md).
+evidenced. Source: [../rubric-traceability.md](../rubric-traceability.md).
 
 | # | Requirement | Implementation | Evidence |
 |---|---|---|---|
@@ -64,7 +64,7 @@ design:
   [../diagrams/openstack-iam.md](../diagrams/openstack-iam.md).
 - **3.6 Address plan.** The table showing disjoint ranges, and that the parser
   assigns them so overlap is impossible by construction.
-- **3.7 Naming convention.** From [../04-naming-and-tagging.md](../04-naming-and-tagging.md)
+- **3.7 Naming convention.** From [../architecture.md](../architecture.md#naming-convention-and-tagging)
   — 4 points. Include the storage-account exception and why it governs the whole
   scheme.
 - **3.8 Tagging.** `project: techsprint`, `environment: testing` — 2 points. Show
@@ -73,7 +73,7 @@ design:
 ## 4. Element selection and justification (3–4 pages) — **I1 7pts + 2pts**
 
 The largest single scored item. Source:
-[../05-design-decisions.md](../05-design-decisions.md).
+[../architecture.md](../architecture.md#design-decisions).
 
 - **4.1 Load balancer.** Standard LB vs Application Gateway, with the cost table.
   Why internal rather than public. Why an HTTP probe rather than TCP. Why
@@ -89,7 +89,7 @@ The largest single scored item. Source:
 
 ## 5. Provider comparison (2–3 pages) — **I1 4pts**
 
-Source: [../06-cloud-comparison.md](../06-cloud-comparison.md).
+Source: [../cloud-comparison.md](../cloud-comparison.md).
 
 - **5.1 Element-by-element table.**
 - **5.2 The differences that shaped this project.** Keystone projects beat
@@ -102,7 +102,7 @@ Source: [../06-cloud-comparison.md](../06-cloud-comparison.md).
 ## 6. Deployment method and code (3–4 pages) — **I2 7pts + I4 7pts**
 
 The brief asks explicitly for *"način i kod za deployment"*. Source:
-[../03-how-it-works.md](../03-how-it-works.md).
+[../architecture.md](../architecture.md#how-the-deployment-works).
 
 - **6.1 The pipeline.** → *Figure 5*: CSV → parser → Terraform → inventory →
   Ansible → verify.
@@ -152,7 +152,7 @@ The brief asks explicitly for *"način i kod za deployment"*. Source:
 
 ## 9. Testing and verification (2–3 pages)
 
-Source: [../14-testing-and-evidence.md](../14-testing-and-evidence.md).
+Source: [../testing-and-evidence.md](../testing-and-evidence.md).
 
 - **9.1 Verification output**, both clouds, with the rubric labels visible.
 - **9.2 Requirement-by-requirement evidence table.**
@@ -164,7 +164,7 @@ Source: [../14-testing-and-evidence.md](../14-testing-and-evidence.md).
 
 ## 10. Cost analysis (2 pages) — **I1 3pts**
 
-Source: [../15-cost-estimate.md](../15-cost-estimate.md).
+Source: [../cost-estimate.md](../cost-estimate.md).
 
 - **10.1 Per-developer breakdown**, from your own subscription's meters.
 - **10.2 Full deployment monthly cost**, and the finding that it exceeds the
@@ -176,7 +176,7 @@ Source: [../15-cost-estimate.md](../15-cost-estimate.md).
 
 ## 11. Limitations and future work (1–2 pages)
 
-Source: [../13-known-limitations.md](../13-known-limitations.md). The summary
+Source: [../cloud-comparison.md](../cloud-comparison.md#known-limitations). The summary
 table plus a paragraph on the three that matter most: the single-point-of-failure
 database, session affinity instead of a shared store, and HTTP rather than HTTPS.
 

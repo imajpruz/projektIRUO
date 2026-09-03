@@ -14,10 +14,10 @@ Legend: **auto** = built by `deploy.sh`, **doc** = you must write it,
 
 | Pts | Requirement | Where | Kind |
 |---|---|---|---|
-| 7 | Explanation of element choices (load balancer, object/file storage, VM type, disk type) | [05-design-decisions.md](05-design-decisions.md) | doc |
-| 3 | Azure monthly cost estimate | [15-cost-estimate.md](15-cost-estimate.md) | doc |
-| 4 | Comparison of Azure and OpenStack element offerings | [06-cloud-comparison.md](06-cloud-comparison.md) | doc |
-| 4 | Naming convention created, documented and applied | [04-naming-and-tagging.md](04-naming-and-tagging.md); shared `name_prefix`/`env_name` locals in both stacks | auto + doc |
+| 7 | Explanation of element choices (load balancer, object/file storage, VM type, disk type) | [architecture.md](architecture.md#design-decisions) | doc |
+| 3 | Azure monthly cost estimate | [cost-estimate.md](cost-estimate.md) | doc |
+| 4 | Comparison of Azure and OpenStack element offerings | [cloud-comparison.md](cloud-comparison.md) | doc |
+| 4 | Naming convention created, documented and applied | [architecture.md](architecture.md#naming-convention-and-tagging); shared `name_prefix`/`env_name` locals in both stacks | auto + doc |
 | 2 | All resources tagged `project: techsprint` and `environment: testing` | `local.common_tags` in `iac/azure/main.tf`, `local.common_tags` in `iac/openstack/main.tf` | auto |
 
 Tag evidence, run before the demo:
@@ -40,13 +40,13 @@ openstack network list --tags project=techsprint -f table
 | Pts | Requirement | Where | Kind |
 |---|---|---|---|
 | 3 | Diagram of the OpenStack architecture | [diagrams/openstack-architecture.md](diagrams/openstack-architecture.md) | doc |
-| 7 | Deployment automation without errors | system bootstrap, per-developer project workspaces and management root, orchestrated by one `deploy.sh` invocation | auto + demo |
+| 7 | Deployment automation without errors | system bootstrap plus one data root holding every tenant resource, orchestrated by one `deploy.sh` invocation | auto + demo |
 | 3 | Load balancer implemented | Amphora `SINGLE` with an HTTP monitor in `modules/rhosp-developer-env` | auto |
 | 1 | Two disks created and mounted per instance | boot volume + `openstack_blockstorage_volume_v3.data`; mounted by `ansible/roles/storage` | auto |
 | 2 | Instances mount object and file storage, least privilege | dedicated project-only Swift identity + rclone; Manila CephFS + per-environment CephX | auto |
 | 1 | Security groups correct, separate for dev and lead roles | one application group per project; one jump-host group in management | auto |
 | 2 | Network isolation: only jump host public, own network per dev | one floating IP; developer network RBAC grants only management a port | auto |
-| 1 | Adequate explanation of the network settings | [07-openstack-network.md](07-openstack-network.md) | doc |
+| 1 | Adequate explanation of the network settings | [architecture.md](architecture.md#openstack-networking) | doc |
 
 ## I3 — Administracija instanci, korisnika, grupa i profila (20)
 
@@ -67,13 +67,13 @@ openstack network list --tags project=techsprint -f table
 |---|---|---|---|
 | 3 | Diagram of the Azure architecture | [diagrams/azure-architecture.md](diagrams/azure-architecture.md) | doc |
 | 7 | Deployment automation without errors | `./deploy.sh --csv ... --cloud azure` | auto + demo |
-| 2 | Load balancer implemented **and compared** (LB vs App Gateway) | `azurerm_lb` in the developer module; comparison in [08-azure-loadbalancer.md](08-azure-loadbalancer.md) | auto + doc |
+| 2 | Load balancer implemented **and compared** (LB vs App Gateway) | `azurerm_lb` in the developer module; comparison in [architecture.md](architecture.md#load-balancer-azure-lb-vs-application-gateway) | auto + doc |
 | 1 | Storage accounts: Blob for objects, Files for files | separate Blob and Files accounts per developer with `azurerm_storage_container` + `azurerm_storage_share` | auto |
 | 1 | Two managed disks created and mounted per instance | `os_disk` + `azurerm_managed_disk.data`; mounted by `ansible/roles/storage` | auto |
 | 2 | Storage mounted via Managed Identity / SAS, least privilege | user-assigned identity, `Storage Blob Data Contributor` on **one container** | auto |
 | 1 | NSGs and ASGs correctly created | `azurerm_network_security_group` + `azurerm_application_security_group` | auto |
 | 2 | VNet per user, public IP only on the jump host | one VNet per developer; the sole `azurerm_public_ip` is in the hub | auto |
-| 1 | Adequate explanation of the Azure network settings | [09-azure-network.md](09-azure-network.md) | doc |
+| 1 | Adequate explanation of the Azure network settings | [architecture.md](architecture.md#azure-networking) | doc |
 
 > Azure egress is routed through the jump/NVA, so the public-IP inventory
 > contains only the jump host as the rubric requires.
@@ -112,12 +112,12 @@ openstack network list --tags project=techsprint -f table
 | Multi-cloud: OpenStack **and** Azure | `--cloud both` | auto |
 | Fully automated with IaC | Terraform + Ansible | auto |
 | Architecture diagram for both | [diagrams/](diagrams/) | doc |
-| Precise Azure cost estimate | [15-cost-estimate.md](15-cost-estimate.md) | doc |
+| Precise Azure cost estimate | [cost-estimate.md](cost-estimate.md) | doc |
 | Script takes a CSV path, variable user count | `--csv`; `for_each` over the parsed map | auto |
-| Tested with 2 developers + 1 lead | required live deployment evidence; `examples/users.csv` is only the input | demo |
+| Tested with 2 developers + 1 lead | required live deployment evidence; `users.example.csv` is only the input | demo |
 | **One** script, run once | `deploy.sh` | auto |
-| OpenStack via own deploy or RH Academy | RH Academy; see [10-openstack-discovery.md](10-openstack-discovery.md) | doc |
-| Private YouTube video explaining the script | [17-video-script.md](17-video-script.md) | demo |
+| OpenStack via own deploy or RH Academy | RH Academy; see [troubleshooting.md](troubleshooting.md#openstack-lab-discovery) | doc |
+| Private YouTube video explaining the script | [testing-and-evidence.md](testing-and-evidence.md#demo-video-script) | demo |
 | Script committed to git regularly | this repository | auto |
 
 ## Self-audit before submitting
@@ -126,8 +126,7 @@ openstack network list --tags project=techsprint -f table
 # 1. Both stacks are valid
 terraform -chdir=iac/azure validate
 terraform -chdir=iac/openstack validate
-terraform -chdir=iac/openstack/environment validate
-terraform -chdir=iac/openstack/management validate
+terraform -chdir=iac/openstack/data validate
 
 # 2. Ansible is clean
 ansible-lint ansible/
@@ -154,4 +153,5 @@ git log -p | grep -icE "AccountKey=|BEGIN (RSA|OPENSSH) PRIVATE|OS_PASSWORD=[^ ]
 
 ---
 
-Next: [Prerequisites](02-prerequisites.md)
+Next: [Architecture and design decisions](architecture.md) ·
+[Setup and prerequisites](setup.md#prerequisites)
